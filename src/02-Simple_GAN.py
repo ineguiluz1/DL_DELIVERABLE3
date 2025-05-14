@@ -2,11 +2,42 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset, TensorDataset
 import os
+import matplotlib.pyplot as plt
+import numpy as np
 
 # Define paths
 script_dir = os.path.dirname(os.path.abspath(__file__))
 augs_path = os.path.join(os.path.dirname(script_dir), 'data', 'aug_transformations')
 originals_path = os.path.join(os.path.dirname(script_dir), 'data', 'orig_transformations')
+
+# Create directory for saving images if it doesn't exist
+os.makedirs('generated_images', exist_ok=True)
+
+def save_sample_images(generator, epoch, n_samples=16, n_z=100, device='cuda'):
+    """Save a grid of generated images"""
+    generator.eval()
+    with torch.no_grad():
+        # Generate images
+        z = torch.randn(n_samples, n_z, 1, 1, device=device)
+        gen_imgs = generator(z)
+        
+        # Denormalize images from [-1,1] to [0,1]
+        gen_imgs = (gen_imgs + 1) / 2.0
+        
+        # Create a grid of images
+        fig, axs = plt.subplots(4, 4, figsize=(10, 10))
+        for i in range(4):
+            for j in range(4):
+                idx = i * 4 + j
+                if idx < n_samples:
+                    img = gen_imgs[idx].cpu().numpy().transpose(1, 2, 0)
+                    axs[i, j].imshow(img)
+                    axs[i, j].axis('off')
+        
+        plt.tight_layout()
+        plt.savefig(f'generated_images/epoch_{epoch}.png')
+        plt.close()
+    generator.train()
 
 class Discriminator(nn.Module):
     def __init__(self, n_channels=3, n_discrimantor_features=64):
@@ -143,6 +174,11 @@ for epoch in range(100):
         if i % 100 == 0:
             print(f"[{epoch}/{num_epochs}] [{i}/{len(dataloader)}] "
                   f"Loss_D: {lossd.item():.4f} Loss_G: {lossg.item():.4f}")
+    
+    # Save sample images every 5 epochs
+    if (epoch + 1) % 5 == 0:
+        save_sample_images(generator, epoch + 1, n_z=n_z, device=device)
+        print(f"Saved sample images for epoch {epoch + 1}")
 
 
 
