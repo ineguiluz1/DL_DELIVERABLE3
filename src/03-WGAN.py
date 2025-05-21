@@ -12,7 +12,7 @@ import pickle
 MODE = 'train'  # 'train' or 'generate'
 MODEL_PATH = 'models/wgan_final_model.pkl'  # Path to saved model for generation
 N_IMAGES = 16  # Number of images to generate in generate mode
-EPOCHS = 100  # Number of training epochs
+EPOCHS = 400  # Number of training epochs
 BATCH_SIZE = 64  # Batch size for training
 USE_AUGS = False  # Whether to use augmented data for training
 NOISE_DIM = 100  # Dimension of noise vector
@@ -21,7 +21,7 @@ LAMBDA_GP = 10  # Gradient penalty lambda
 LR = 0.0002  # Learning rate
 BETA1 = 0.5  # Adam optimizer beta1
 BETA2 = 0.999  # Adam optimizer beta2
-SAVE_INTERVAL = 5  # Save model and images every N epochs
+SAVE_INTERVAL = 50  # Save model and images every N epochs
 
 # Define paths
 def get_data_paths():
