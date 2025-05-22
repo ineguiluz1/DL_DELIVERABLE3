@@ -1,10 +1,11 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.autograd import grad
 import matplotlib.pyplot as plt
 import os
 import numpy as np
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, Dataset, TensorDataset
 import pickle
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -39,6 +40,7 @@ def get_data_paths():
     originals_path = os.path.join(os.path.dirname(script_dir), 'data', 'orig_transformations')
     return originals_path, augs_path
 
+# Create directories
 def create_directories():
     os.makedirs(os.path.join(os.path.dirname(script_dir), 'generated_images'), exist_ok=True)
     os.makedirs(os.path.join(os.path.dirname(script_dir), 'models'), exist_ok=True)
@@ -67,6 +69,7 @@ class Encoder(nn.Module):
             nn.Flatten(),  # (N, 512*4*4)
             nn.Linear(512*4*4, latent_dim)  # (N, latent_dim)
         )
+
     def forward(self, x):
         return self.net(x)
     
@@ -143,18 +146,22 @@ class Discriminator(nn.Module):
         return out.view(out.size(0), -1)  # Flatten to (N, 1)
 
 def load_tensors(origs_path, augs_path, load_augs=True):
+    """Load tensor data from the given paths"""
     tensors = []
+
     for filename in os.listdir(origs_path):
         if filename.endswith('.pt'):
             tensor_file = os.path.join(origs_path, filename)
             tensor = torch.load(tensor_file)
             tensors.append(tensor)
+
     if load_augs:
         for filename in os.listdir(augs_path):
             if filename.endswith('.pt'):
                 tensor_file = os.path.join(augs_path, filename)
                 tensor = torch.load(tensor_file)
                 tensors.append(tensor)
+
     return tensors
 
 def save_sample_images(decoder, epoch, n_samples=16, n_z=LATENT_DIM, device='cuda', output_path=None):
@@ -208,6 +215,7 @@ def load_model(filename, device, latent_dim=LATENT_DIM, lr=LR, beta1=BETA1, beta
     encoder = Encoder(latent_dim=latent_dim).to(device)
     decoder = Decoder(latent_dim=latent_dim).to(device)
     discriminator = Discriminator().to(device)
+
     encoder.load_state_dict(model_state['encoder'])
     decoder.load_state_dict(model_state['decoder'])
     discriminator.load_state_dict(model_state['discriminator'])
@@ -217,7 +225,9 @@ def load_model(filename, device, latent_dim=LATENT_DIM, lr=LR, beta1=BETA1, beta
     
     d_optimizer.load_state_dict(model_state['d_optimizer'])
     ae_optimizer.load_state_dict(model_state['ae_optimizer'])
+
     epoch = model_state['epoch']
+
     return encoder, decoder, discriminator, d_optimizer, ae_optimizer, epoch
 
 def generate_images_from_model(model_path=MODEL_PATH, n_images=N_IMAGES, latent_dim=LATENT_DIM, save_images=SAVE_IMAGES, output_path=None):
@@ -304,7 +314,6 @@ def plot_losses(d_losses, g_losses, recon_losses, save_path=None):
     plt.ylabel('Loss')
     plt.legend()
     plt.title('Autoencoder-GAN Training Losses')
-    plt.title('Autoencoder-GAN Training Losses')
     plt.grid(True, alpha=0.3)
     plt.savefig(f'{save_path}/autoencoder_gan_loss_plot.png')
     plt.close()
@@ -358,6 +367,7 @@ def train_autoeconder_gan(dataloader, device=None):
     recon_loss_fn = nn.MSELoss()
     adv_loss_fn = nn.BCELoss()
 
+    # Logs
     d_losses, recon_losses, g_losses = [], [], []
 
     print(f"Starting training for {EPOCHS} epochs")
@@ -546,29 +556,20 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 if MODE == 'train':
+    # Load data
     originals_path, augs_path = get_data_paths()
     tensors = load_tensors(originals_path, augs_path, load_augs=USE_AUGS)
     tensors = torch.stack(tensors)
     print(f"Loaded {len(tensors)} tensors of shape {tensors[0].shape}")
+    
+    # Prepare dataset
     dataset = TensorDataset(tensors)
     dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
-
-    # Configuration
-    config = {
-        'epochs': EPOCHS,
-        'batch_size': BATCH_SIZE,
-        'device': torch.device("cuda" if torch.cuda.is_available() else "cpu"),
-        'latent_dim': LATENT_DIM,
-        'lr': LR,
-        'lambda_adv': LAMBDA_ADV
-    }
-
-    train_autoeconder_gan(dataloader, config)
-        
-        
-if MODE == 'generate':
-    # Load model
-    encoder, decoder, discriminator, d_optimizer, ae_optimizer, epoch = load_model(MODEL_PATH, torch.device("cuda" if torch.cuda.is_available() else "cpu"))
     
-    # Generate images
-    generate_images_from_model(MODEL_PATH, N_IMAGES)       
+    # Train the model
+    train_autoeconder_gan(dataloader, device)
+    print("Training complete!")
+    
+elif MODE == 'generate':
+    # Generate images from saved model
+    generate_images_from_model(MODEL_PATH, n_images=N_IMAGES, latent_dim=LATENT_DIM, save_images=SAVE_IMAGES)       
