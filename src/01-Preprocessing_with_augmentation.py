@@ -35,7 +35,7 @@ transform_augment = transforms.Compose([
     transforms.RandomRotation(15),
     transforms.ColorJitter(brightness=0.2, contrast=0.2),
     transforms.ToTensor(),
-    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))  # Normalize to [-1, 1]
+    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)) 
 ])
 
 # Define transform for original images (without random augmentations)
@@ -91,7 +91,7 @@ def transform_data(input_path, orig_tensor_path, aug_tensor_path, transform_aug,
 
     print(f"\nDone! {processed_count} tensors saved. {skipped_count} files skipped.")
 
-transform_data(images_path, orig_tensor_path, aug_tensor_path, transform_augment, transform_original)
+# transform_data(images_path, orig_tensor_path, aug_tensor_path, transform_augment, transform_original)
 
 def show_original_transformation(image_name, original_image_path, orig_tensor_path):
     """

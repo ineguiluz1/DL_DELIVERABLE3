@@ -8,10 +8,13 @@ import numpy as np
 from torch.utils.data import DataLoader, Dataset, TensorDataset
 import pickle
 
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
 # Configuration options
-MODE = 'train'  # 'train' or 'generate'
-MODEL_PATH = 'models/wgan_final_model.pkl'  # Path to saved model for generation
-N_IMAGES = 16  # Number of images to generate in generate mode
+MODE = 'generate'  # 'train' or 'generate'
+MODEL_PATH = os.path.join(os.path.dirname(script_dir), 'models','wgan_final_model.pkl')  # Path to saved model for generation
+N_IMAGES = 1  # Number of images to generate in generate mode
+SAVE_IMAGES = False  # Whether to save generated images to disk or just display them
 EPOCHS = 400  # Number of training epochs
 BATCH_SIZE = 64  # Batch size for training
 USE_AUGS = False  # Whether to use augmented data for training
@@ -205,8 +208,15 @@ def load_model(filename, device):
     
     return generator, discriminator, g_optimizer, d_optimizer, epoch
 
-def generate_images_from_model(model_path, n_images=16, output_path='generated_images'):
-    """Generate images using a saved model"""
+def generate_images_from_model(model_path, n_images=16, output_path='generated_images', save_images=True):
+    """Generate images using a saved model
+    
+    Args:
+        model_path (str): Path to the saved model
+        n_images (int): Number of images to generate
+        output_path (str): Path to save generated images
+        save_images (bool): If True, saves images to disk. If False, only displays them.
+    """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     # Load only the generator
@@ -225,33 +235,57 @@ def generate_images_from_model(model_path, n_images=16, output_path='generated_i
         # Denormalize images from [-1,1] to [0,1]
         gen_imgs = (gen_imgs + 1) / 2.0
         
-        # Create output directory if it doesn't exist
-        os.makedirs(output_path, exist_ok=True)
-        
-        # Create a grid of images
-        fig, axs = plt.subplots(int(np.sqrt(n_images)), int(np.sqrt(n_images)), 
-                               figsize=(10, 10))
-        axs = axs.flatten()
-        
-        for i in range(n_images):
-            img = gen_imgs[i].cpu().numpy().transpose(1, 2, 0)
-            axs[i].imshow(img)
-            axs[i].axis('off')
-        
-        plt.tight_layout()
-        plt.savefig(f'{output_path}/generated_from_saved_model.png')
-        plt.close()
-        
-        # Also save individual images
-        for i in range(n_images):
-            img = gen_imgs[i].cpu().numpy().transpose(1, 2, 0)
-            plt.figure(figsize=(5, 5))
+        # Handle display differently based on number of images
+        if n_images == 1:
+            # For a single image, create a simple figure
+            fig = plt.figure(figsize=(8, 8))
+            img = gen_imgs[0].cpu().numpy().transpose(1, 2, 0)
             plt.imshow(img)
             plt.axis('off')
-            plt.savefig(f'{output_path}/generated_{i}.png')
-            plt.close()
-    
-    print(f"Generated {n_images} images saved to {output_path}")
+        else:
+            # For multiple images, create a grid
+            grid_size = int(np.sqrt(n_images))
+            fig, axs = plt.subplots(grid_size, grid_size, figsize=(10, 10))
+            
+            # Handle case when axs is a 1D or 2D array
+            if grid_size == 1:  # When n_images = 2, 3, or 4
+                for i in range(n_images):
+                    img = gen_imgs[i].cpu().numpy().transpose(1, 2, 0)
+                    if n_images == 2:
+                        axs[i].imshow(img)
+                        axs[i].axis('off')
+                    else:  # n_images > 2
+                        axs.flatten()[i].imshow(img)
+                        axs.flatten()[i].axis('off')
+            else:  # When grid_size > 1
+                for i in range(min(n_images, grid_size*grid_size)):
+                    img = gen_imgs[i].cpu().numpy().transpose(1, 2, 0)
+                    row, col = divmod(i, grid_size)
+                    axs[row, col].imshow(img)
+                    axs[row, col].axis('off')
+        
+        plt.tight_layout()
+        
+        if save_images:
+            # Create output directory if it doesn't exist
+            os.makedirs(output_path, exist_ok=True)
+            plt.savefig(f'{output_path}/generated_from_saved_model.png')
+            
+            # Also save individual images
+            for i in range(n_images):
+                img = gen_imgs[i].cpu().numpy().transpose(1, 2, 0)
+                plt.figure(figsize=(5, 5))
+                plt.imshow(img)
+                plt.axis('off')
+                plt.savefig(f'{output_path}/generated_{i}.png')
+                plt.close()
+            
+            print(f"Generated {n_images} images saved to {output_path}")
+        else:
+            plt.show()
+            print(f"Generated {n_images} images displayed")
+        
+        plt.close(fig)
 
 def plot_losses(d_losses, g_losses, save_path='plots'):
     """Plot discriminator and generator losses"""
@@ -263,7 +297,7 @@ def plot_losses(d_losses, g_losses, save_path='plots'):
     plt.legend()
     plt.title('WGAN Training Losses')
     plt.grid(True, alpha=0.3)
-    plt.savefig(f'{save_path}/loss_plot.png')
+    plt.savefig(f'{save_path}/wgan_loss_plot.png')
     plt.close()
 
 def train_wgan(dataloader, config):
@@ -425,4 +459,4 @@ if MODE == 'train':
     
 elif MODE == 'generate':
     # Generate images from saved model
-    generate_images_from_model(MODEL_PATH, n_images=N_IMAGES)
+    generate_images_from_model(MODEL_PATH, n_images=N_IMAGES, save_images=SAVE_IMAGES)
