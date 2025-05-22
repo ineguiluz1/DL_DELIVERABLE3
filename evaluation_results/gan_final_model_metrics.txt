@@ -1,0 +1,4 @@
+Model: models/gan_final_model.pkl
+Number of evaluation samples: 100
+Inception Score: 1.7508 ± 0.1749
+FID Score: 136.7758

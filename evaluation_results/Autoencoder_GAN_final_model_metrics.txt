@@ -1,0 +1,4 @@
+Model: /home/adiez/Desktop/DL_DELIVERABLE3/models/Autoencoder_GAN_final_model.pkl
+Number of evaluation samples: 100
+Inception Score: 1.2954 ± 0.0694
+FID Score: 208.6101

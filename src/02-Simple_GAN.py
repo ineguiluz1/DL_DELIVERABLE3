@@ -1,14 +1,18 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset, TensorDataset
 import os
 import matplotlib.pyplot as plt
 import numpy as np
 import pickle
+from torchvision.models import inception_v3
+import scipy
+from scipy import linalg
 
 # Configuration options
-MODE = 'generate'  # 'train' or 'generate'
-MODEL_PATH = 'models/gan_final_model.pkl'  # Path to saved model for generation
+MODE = 'evaluate'  # 'train', 'generate', or 'evaluate'
+MODEL_PATH = 'models/gan_final_model.pkl'  # Path to saved model for generation/evaluation
 N_IMAGES = 1  # Number of images to generate in generate mode
 SAVE_IMAGES = False  # Whether to save generated images to disk or just display them
 EPOCHS = 600  # Number of training epochs
@@ -18,6 +22,7 @@ NOISE_DIM = 100  # Dimension of noise vector
 LR = 0.0002  # Learning rate
 BETA1 = 0.5  # Adam optimizer beta1
 SAVE_INTERVAL = 50  # Save model and images every N epochs
+N_EVAL_SAMPLES = 100  # Number of samples to generate for evaluation
 
 # Define paths
 def get_data_paths():
@@ -349,6 +354,201 @@ def train_gan(dataloader, noise_dim, device):
     
     return generator, discriminator, d_losses, g_losses
 
+def calculate_inception_score(imgs, device, batch_size=32, splits=10):
+    """Calculate the Inception Score for generated images"""
+    # Load Inception model
+    inception_model = inception_v3(pretrained=True, transform_input=False).to(device)
+    inception_model.eval()
+    
+    # Keep the classification layer for Inception Score
+    
+    # Function to get predictions
+    def get_preds(x):
+        with torch.no_grad():
+            # Resize images to inception input size
+            if x.shape[2] != 299 or x.shape[3] != 299:
+                x = F.interpolate(x, size=(299, 299), mode='bilinear', align_corners=True)
+            # Move images to device
+            x = x.to(device)
+            # Get predictions
+            pred = inception_model(x)
+            # Apply softmax to get probabilities
+            pred = F.softmax(pred, dim=1)
+        return pred.cpu().numpy()
+    
+    # Get predictions for all images
+    n_batches = int(np.ceil(float(len(imgs)) / float(batch_size)))
+    preds = np.zeros((len(imgs), 1000))
+    
+    for i in range(n_batches):
+        start = i * batch_size
+        end = min((i + 1) * batch_size, len(imgs))
+        batch = imgs[start:end]
+        preds[start:end] = get_preds(batch)
+    
+    # Calculate Inception Score
+    scores = []
+    for i in range(splits):
+        part = preds[i * (len(preds) // splits): (i + 1) * (len(preds) // splits), :]
+        kl = part * (np.log(part) - np.log(np.expand_dims(np.mean(part, axis=0), axis=0)))
+        kl = np.mean(np.sum(kl, axis=1))
+        scores.append(np.exp(kl))
+    
+    return np.mean(scores), np.std(scores)
+
+def calculate_activation_statistics(imgs, model, batch_size=32, device='cuda'):
+    """Calculate mean and covariance of features extracted by Inception model"""
+    model.eval()
+    
+    n_batches = int(np.ceil(float(len(imgs)) / float(batch_size)))
+    n_used_imgs = n_batches * batch_size
+    
+    # Extract features
+    pred_arr = np.empty((n_used_imgs, 2048))
+    
+    for i in range(n_batches):
+        start = i * batch_size
+        end = min((i + 1) * batch_size, len(imgs))
+        
+        batch = imgs[start:end]
+        if batch.shape[2] != 299 or batch.shape[3] != 299:
+            batch = F.interpolate(batch, size=(299, 299), mode='bilinear', align_corners=True)
+        
+        batch = batch.to(device)
+        
+        with torch.no_grad():
+            pred = model(batch)
+        
+        pred_arr[start:end] = pred.cpu().numpy()
+    
+    # Calculate mean and covariance
+    mu = np.mean(pred_arr, axis=0)
+    sigma = np.cov(pred_arr, rowvar=False)
+    
+    return mu, sigma
+
+def calculate_frechet_distance(mu1, sigma1, mu2, sigma2, eps=1e-6):
+    """Calculate Fréchet Distance between two multivariate Gaussians"""
+    mu1 = np.atleast_1d(mu1)
+    mu2 = np.atleast_1d(mu2)
+    
+    sigma1 = np.atleast_2d(sigma1)
+    sigma2 = np.atleast_2d(sigma2)
+    
+    assert mu1.shape == mu2.shape, "Mean vectors have different lengths"
+    assert sigma1.shape == sigma2.shape, "Covariance matrices have different dimensions"
+    
+    diff = mu1 - mu2
+    
+    # Product might be almost singular
+    covmean, _ = linalg.sqrtm(sigma1.dot(sigma2), disp=False)
+    if not np.isfinite(covmean).all():
+        msg = "fid calculation produces singular product; adding %s to diagonal of cov estimates" % eps
+        print(msg)
+        offset = np.eye(sigma1.shape[0]) * eps
+        covmean = linalg.sqrtm((sigma1 + offset).dot(sigma2 + offset))
+    
+    # Numerical error might give slight imaginary component
+    if np.iscomplexobj(covmean):
+        if not np.allclose(np.diagonal(covmean).imag, 0, atol=1e-3):
+            m = np.max(np.abs(covmean.imag))
+            raise ValueError("Imaginary component {}".format(m))
+        covmean = covmean.real
+    
+    tr_covmean = np.trace(covmean)
+    
+    return diff.dot(diff) + np.trace(sigma1) + np.trace(sigma2) - 2 * tr_covmean
+
+def calculate_fid(real_images, fake_images, batch_size=32, device='cuda'):
+    """Calculate FID between real and fake images"""
+    # Load Inception model
+    inception_model = inception_v3(pretrained=True, transform_input=False).to(device)
+    inception_model.eval()
+    
+    # Remove last linear layer for feature extraction (for FID)
+    inception_model.fc = torch.nn.Identity()
+    
+    # Calculate statistics for real images
+    mu_real, sigma_real = calculate_activation_statistics(real_images, inception_model, batch_size, device)
+    
+    # Calculate statistics for fake images
+    mu_fake, sigma_fake = calculate_activation_statistics(fake_images, inception_model, batch_size, device)
+    
+    # Calculate FID
+    fid_value = calculate_frechet_distance(mu_real, sigma_real, mu_fake, sigma_fake)
+    
+    return fid_value
+
+def evaluate_model(model_path, n_samples=1000, batch_size=32):
+    """Evaluate a saved generator model using FID and IS metrics
+    
+    Args:
+        model_path (str): Path to the saved model
+        n_samples (int): Number of images to generate for evaluation
+        batch_size (int): Batch size for evaluation
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    print(f"Evaluating model from {model_path} using {device}")
+    print(f"Generating {n_samples} images for evaluation...")
+    
+    # Load only the generator
+    with open(model_path, 'rb') as f:
+        model_state = pickle.load(f)
+    
+    generator = Generator(n_channels=3, n_generator_features=64, n_z=NOISE_DIM).to(device)
+    generator.load_state_dict(model_state['generator'])
+    generator.eval()
+    
+    # Generate images
+    fake_images = []
+    with torch.no_grad():
+        for i in range(0, n_samples, batch_size):
+            current_batch_size = min(batch_size, n_samples - i)
+            z = torch.randn(current_batch_size, NOISE_DIM, 1, 1, device=device)
+            imgs = generator(z)
+            # Normalize from [-1, 1] to [0, 1]
+            imgs = (imgs + 1) / 2.0
+            fake_images.append(imgs)
+    
+    fake_images = torch.cat(fake_images, dim=0)
+    
+    # Load real images for FID calculation
+    print("Loading real images for comparison...")
+    originals_path, augs_path = get_data_paths()
+    tensors = load_tensors(originals_path, augs_path, load_augs=False)
+    real_images = torch.stack(tensors)
+    
+    # Ensure we have enough real images, or use what we have with replacement
+    if len(real_images) < n_samples:
+        print(f"Warning: Only {len(real_images)} real images available, using with replacement")
+        indices = np.random.choice(len(real_images), size=n_samples, replace=True)
+        real_images = real_images[indices]
+    else:
+        indices = np.random.choice(len(real_images), size=n_samples, replace=False)
+        real_images = real_images[indices]
+    
+    # Normalize real images to [0, 1] if needed
+    if real_images.min() < 0:
+        real_images = (real_images + 1) / 2.0
+    
+    # Calculate Inception Score
+    print("Calculating Inception Score...")
+    is_mean, is_std = calculate_inception_score(fake_images, device, batch_size=batch_size)
+    print(f"Inception Score: {is_mean:.4f} ± {is_std:.4f}")
+    
+    # Calculate FID
+    print("Calculating FID Score...")
+    fid_value = calculate_fid(real_images, fake_images, batch_size=batch_size, device=device)
+    print(f"FID Score: {fid_value:.4f}")
+    
+    # Return metrics
+    return {
+        "inception_score_mean": is_mean,
+        "inception_score_std": is_std,
+        "fid": fid_value
+    }
+
 # Create necessary directories
 create_directories()
 
@@ -375,6 +575,30 @@ if MODE == 'train':
 elif MODE == 'generate':
     # Generate images from saved model
     generate_images_from_model(MODEL_PATH, n_images=N_IMAGES, save_images=SAVE_IMAGES)
+
+elif MODE == 'evaluate':
+    # Evaluate model using FID and IS metrics
+    metrics = evaluate_model(MODEL_PATH, n_samples=N_EVAL_SAMPLES, batch_size=BATCH_SIZE)
+    print("\nEvaluation Summary:")
+    print(f"Model: {MODEL_PATH}")
+    print(f"Inception Score: {metrics['inception_score_mean']:.4f} ± {metrics['inception_score_std']:.4f}")
+    print(f"FID Score: {metrics['fid']:.4f}")
+    
+    # Save metrics to file
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    results_dir = os.path.join(os.path.dirname(script_dir), 'evaluation_results')
+    os.makedirs(results_dir, exist_ok=True)
+    
+    model_name = os.path.basename(MODEL_PATH).split('.')[0]
+    results_file = os.path.join(results_dir, f"{model_name}_metrics.txt")
+    
+    with open(results_file, 'w') as f:
+        f.write(f"Model: {MODEL_PATH}\n")
+        f.write(f"Number of evaluation samples: {N_EVAL_SAMPLES}\n")
+        f.write(f"Inception Score: {metrics['inception_score_mean']:.4f} ± {metrics['inception_score_std']:.4f}\n")
+        f.write(f"FID Score: {metrics['fid']:.4f}\n")
+    
+    print(f"Results saved to {results_file}")
 
 
 
