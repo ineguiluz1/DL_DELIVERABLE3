@@ -17,13 +17,14 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 # Configuration options
 MODE = 'evaluate'  # 'train', 'generate', or 'evaluate'
 MODEL_PATH = os.path.join(os.path.dirname(script_dir), 'models','wgan_final_model.pkl')  # Path to saved model for generation/evaluation
+MODEL_PATH = os.path.join(os.path.dirname(script_dir), 'models','/home/adiez/models/wgan_final_model.pkl')  # Path to saved model for generation/evaluation
 N_IMAGES = 1  # Number of images to generate in generate mode
-SAVE_IMAGES = False  # Whether to save generated images to disk or just display them
-EPOCHS = 400  # Number of training epochs
+SAVE_IMAGES = True  # Whether to save generated images to disk or just display them
+EPOCHS = 600  # Number of training epochs
 BATCH_SIZE = 64  # Batch size for training
 USE_AUGS = False  # Whether to use augmented data for training
 NOISE_DIM = 100  # Dimension of noise vector
-CRITIC_ITERATIONS = 5  # Number of discriminator updates per generator update
+CRITIC_ITERATIONS = 5  # Number of critic updates per generator update
 LAMBDA_GP = 10  # Gradient penalty lambda
 LR = 0.0002  # Learning rate
 BETA1 = 0.5  # Adam optimizer beta1
@@ -76,9 +77,9 @@ class Generator(nn.Module):
     def forward(self, z):
         return self.net(z)
 
-class Discriminator(nn.Module):
+class Critic(nn.Module):
     def __init__(self):
-        super(Discriminator, self).__init__()
+        super(Critic, self).__init__()
         self.net = nn.Sequential(
             # Input: (N, 3, 64, 64)
             nn.Conv2d(3, 64, kernel_size=4, stride=2, padding=1, bias=False),  # (N, 64, 32, 32)
@@ -100,7 +101,7 @@ class Discriminator(nn.Module):
         out = self.net(x)
         return out.view(out.size(0), -1)  # Flatten to (N, 1)
 
-def gradient_penalty(discriminator, real, fake, device):
+def gradient_penalty(critic, real, fake, device):
     # Ensure both tensors have the same spatial dimensions
     if real.shape != fake.shape:
         min_h = min(real.shape[2], fake.shape[2])
@@ -118,7 +119,7 @@ def gradient_penalty(discriminator, real, fake, device):
     interpolated = epsilon * real + (1 - epsilon) * fake
     interpolated.requires_grad_(True)
 
-    mixed_scores = discriminator(interpolated)
+    mixed_scores = critic(interpolated)
 
     gradients = grad(
         outputs=mixed_scores,
@@ -179,13 +180,13 @@ def save_sample_images(generator, epoch, n_samples=16, n_z=100, device='cuda'):
         plt.close()
     generator.train()
 
-def save_model(generator, discriminator, g_optimizer, d_optimizer, epoch, filename):
+def save_model(generator, critic, g_optimizer, c_optimizer, epoch, filename):
     """Save model state to a pickle file"""
     model_state = {
         'generator': generator.state_dict(),
-        'discriminator': discriminator.state_dict(),
+        'critic': critic.state_dict(),
         'g_optimizer': g_optimizer.state_dict(),
-        'd_optimizer': d_optimizer.state_dict(),
+        'c_optimizer': c_optimizer.state_dict(),
         'epoch': epoch
     }
     with open(filename, 'wb') as f:
@@ -198,20 +199,30 @@ def load_model(filename, device):
         model_state = pickle.load(f)
     
     generator = Generator(noise_dim=100).to(device)
-    discriminator = Discriminator().to(device)
+    critic = Critic().to(device)
     
     generator.load_state_dict(model_state['generator'])
-    discriminator.load_state_dict(model_state['discriminator'])
+    
+    # Handle both old models with 'critic' key and new models with 'critic' key
+    if 'critic' in model_state:
+        critic.load_state_dict(model_state['critic'])
+    else:
+        critic.load_state_dict(model_state['discriminator'])
     
     g_optimizer = torch.optim.Adam(generator.parameters(), lr=0.0002, betas=(0.5, 0.999))
-    d_optimizer = torch.optim.Adam(discriminator.parameters(), lr=0.0002, betas=(0.5, 0.999))
+    c_optimizer = torch.optim.Adam(critic.parameters(), lr=0.0002, betas=(0.5, 0.999))
     
     g_optimizer.load_state_dict(model_state['g_optimizer'])
-    d_optimizer.load_state_dict(model_state['d_optimizer'])
+    
+    # Handle both old models with 'd_optimizer' key and new models with 'c_optimizer' key
+    if 'c_optimizer' in model_state:
+        c_optimizer.load_state_dict(model_state['c_optimizer'])
+    else:
+        c_optimizer.load_state_dict(model_state['d_optimizer'])
     
     epoch = model_state['epoch']
     
-    return generator, discriminator, g_optimizer, d_optimizer, epoch
+    return generator, critic, g_optimizer, c_optimizer, epoch
 
 def generate_images_from_model(model_path, n_images=16, output_path='generated_images', save_images=True):
     """Generate images using a saved model
@@ -292,10 +303,10 @@ def generate_images_from_model(model_path, n_images=16, output_path='generated_i
         
         plt.close(fig)
 
-def plot_losses(d_losses, g_losses, save_path='plots'):
-    """Plot discriminator and generator losses"""
+def plot_losses(c_losses, g_losses, save_path='plots'):
+    """Plot critic and generator losses"""
     plt.figure(figsize=(10, 5))
-    plt.plot(d_losses, label='Discriminator Loss')
+    plt.plot(c_losses, label='Critic Loss')
     plt.plot(g_losses, label='Generator Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
@@ -321,28 +332,28 @@ def train_wgan(dataloader, config):
     
     # Initialize models
     generator = Generator(noise_dim=noise_dim).to(device)
-    discriminator = Discriminator().to(device)
+    critic = Critic().to(device)
     
     # Initialize optimizers
     g_optimizer = torch.optim.Adam(generator.parameters(), lr=lr, betas=(beta1, beta2))
-    d_optimizer = torch.optim.Adam(discriminator.parameters(), lr=lr, betas=(beta1, beta2))
+    c_optimizer = torch.optim.Adam(critic.parameters(), lr=lr, betas=(beta1, beta2))
     
     # Training metrics
-    d_losses = []
+    c_losses = []
     g_losses = []
-    epoch_d_losses = []
+    epoch_c_losses = []
     epoch_g_losses = []
     
     # Training loop
     for epoch in range(num_epochs):
-        epoch_d_loss = 0
+        epoch_c_loss = 0
         epoch_g_loss = 0
         
         for batch_idx, (real_images,) in enumerate(dataloader):
             batch_size = real_images.size(0)
             real_images = real_images.to(device)
             
-            # Train discriminator for critic_iterations steps
+            # Train critic for critic_iterations steps
             for _ in range(critic_iterations):
                 # Generate noise
                 noise = torch.randn(batch_size, noise_dim, device=device)
@@ -353,22 +364,22 @@ def train_wgan(dataloader, config):
                 real_batch = real_images[:current_batch_size]
                 fake_batch = fake_images[:current_batch_size]
                 
-                # Calculate discriminator loss
-                real_pred = discriminator(real_batch)
-                fake_pred = discriminator(fake_batch.detach())
+                # Calculate critic loss
+                real_pred = critic(real_batch)
+                fake_pred = critic(fake_batch.detach())
                 
                 # Calculate gradient penalty
-                gp = gradient_penalty(discriminator, real_batch, fake_batch.detach(), device)
+                gp = gradient_penalty(critic, real_batch, fake_batch.detach(), device)
                 
                 # Wasserstein loss with gradient penalty
-                d_loss = fake_pred.mean() - real_pred.mean() + lambda_gp * gp
+                c_loss = fake_pred.mean() - real_pred.mean() + lambda_gp * gp
                 
-                # Update discriminator
-                d_optimizer.zero_grad()
-                d_loss.backward()
-                d_optimizer.step()
+                # Update critic
+                c_optimizer.zero_grad()
+                c_loss.backward()
+                c_optimizer.step()
                 
-                epoch_d_loss += d_loss.item()
+                epoch_c_loss += c_loss.item()
             
             # Train generator
             noise = torch.randn(batch_size, noise_dim, device=device)
@@ -378,9 +389,9 @@ def train_wgan(dataloader, config):
             current_batch_size = min(batch_size, fake_images.size(0))
             fake_batch = fake_images[:current_batch_size]
             
-            fake_pred = discriminator(fake_batch)
+            fake_pred = critic(fake_batch)
             
-            # Generator loss (maximize the score from discriminator)
+            # Generator loss (maximize the score from critic)
             g_loss = -fake_pred.mean()
             
             # Update generator
@@ -393,38 +404,38 @@ def train_wgan(dataloader, config):
             # Print progress
             if batch_idx % 10 == 0:
                 print(f"[{epoch}/{num_epochs}] [{batch_idx}/{len(dataloader)}] "
-                      f"D Loss: {d_loss.item():.4f}, G Loss: {g_loss.item():.4f}")
+                      f"C Loss: {c_loss.item():.4f}, G Loss: {g_loss.item():.4f}")
         
         # Calculate average losses for the epoch
-        avg_d_loss = epoch_d_loss / len(dataloader)
+        avg_c_loss = epoch_c_loss / len(dataloader)
         avg_g_loss = epoch_g_loss / len(dataloader)
         
         # Store losses for plotting
-        epoch_d_losses.append(avg_d_loss)
+        epoch_c_losses.append(avg_c_loss)
         epoch_g_losses.append(avg_g_loss)
         
-        print(f"Epoch {epoch} - Average D Loss: {avg_d_loss:.4f}, Average G Loss: {avg_g_loss:.4f}")
+        print(f"Epoch {epoch} - Average C Loss: {avg_c_loss:.4f}, Average G Loss: {avg_g_loss:.4f}")
         
         # Save sample images and plot losses every save_interval epochs
         if (epoch + 1) % save_interval == 0:
             save_sample_images(generator, epoch + 1, n_z=noise_dim, device=device)
             
             # Save model checkpoint
-            save_model(generator, discriminator, g_optimizer, d_optimizer, epoch + 1, 
+            save_model(generator, critic, g_optimizer, c_optimizer, epoch + 1, 
                       f'models/wgan_checkpoint_epoch_{epoch+1}.pkl')
             
             # Update and save loss plots
-            plot_losses(epoch_d_losses, epoch_g_losses)
+            plot_losses(epoch_c_losses, epoch_g_losses)
             print(f"Saved sample images and model for epoch {epoch + 1}")
     
     # Save final model
-    save_model(generator, discriminator, g_optimizer, d_optimizer, num_epochs, 
+    save_model(generator, critic, g_optimizer, c_optimizer, num_epochs, 
               'models/wgan_final_model.pkl')
     
     # Final loss plot
-    plot_losses(epoch_d_losses, epoch_g_losses)
+    plot_losses(epoch_c_losses, epoch_g_losses)
     
-    return generator, discriminator, epoch_d_losses, epoch_g_losses
+    return generator, critic, epoch_c_losses, epoch_g_losses
 
 def calculate_inception_score(imgs, device, batch_size=32, splits=10):
     """Calculate the Inception Score for generated images"""
@@ -655,7 +666,7 @@ if MODE == 'train':
     }
     
     # Train the model
-    generator, discriminator, d_losses, g_losses = train_wgan(dataloader, config)
+    generator, critic, c_losses, g_losses = train_wgan(dataloader, config)
     print("Training complete!")
     
 elif MODE == 'generate':
