@@ -1,6 +1,8 @@
 from PIL import Image
 import os
 
+# Preprocessing to resize images to 64x64 for StyleGAN2
+
 script_dir = os.path.dirname(os.path.abspath(__file__))
 input_folder = os.path.join(os.path.dirname(script_dir), 'data', 'cropped')
 output_folder = os.path.join(os.path.dirname(script_dir), 'data', 'cropped_resized64')

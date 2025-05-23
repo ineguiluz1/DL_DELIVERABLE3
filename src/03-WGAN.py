@@ -15,11 +15,10 @@ import torchvision.transforms as transforms
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
 # Configuration options
-MODE = 'evaluate'  # 'train', 'generate', or 'evaluate'
+MODE = 'generate'  # 'train', 'generate', or 'evaluate'
 MODEL_PATH = os.path.join(os.path.dirname(script_dir), 'models','wgan_final_model.pkl')  # Path to saved model for generation/evaluation
-MODEL_PATH = os.path.join(os.path.dirname(script_dir), 'models','/home/adiez/models/wgan_final_model.pkl')  # Path to saved model for generation/evaluation
-N_IMAGES = 1  # Number of images to generate in generate mode
-SAVE_IMAGES = True  # Whether to save generated images to disk or just display them
+N_IMAGES = 16  # Number of images to generate in generate mode
+SAVE_IMAGES = False  # Whether to save generated images to disk or just display them
 EPOCHS = 600  # Number of training epochs
 BATCH_SIZE = 64  # Batch size for training
 USE_AUGS = False  # Whether to use augmented data for training
@@ -34,6 +33,7 @@ N_EVAL_SAMPLES = 100  # Number of samples to generate for evaluation
 
 # Define paths
 def get_data_paths():
+    """Get paths to the original and augmented data"""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     augs_path = os.path.join(os.path.dirname(script_dir), 'data', 'aug_transformations')
     originals_path = os.path.join(os.path.dirname(script_dir), 'data', 'orig_transformations')
@@ -41,11 +41,13 @@ def get_data_paths():
 
 # Create directories
 def create_directories():
+    """Create directories for generated images, models, and plots"""
     os.makedirs('generated_images', exist_ok=True)
     os.makedirs('models', exist_ok=True)
     os.makedirs('plots', exist_ok=True)
 
 class Generator(nn.Module):
+    """Generator model for the WGAN"""
     def __init__(self, noise_dim=100):
         super(Generator, self).__init__()
         self.noise_dim = noise_dim
@@ -78,6 +80,7 @@ class Generator(nn.Module):
         return self.net(z)
 
 class Critic(nn.Module):
+    """Critic model for the WGAN"""
     def __init__(self):
         super(Critic, self).__init__()
         self.net = nn.Sequential(
@@ -102,6 +105,7 @@ class Critic(nn.Module):
         return out.view(out.size(0), -1)  # Flatten to (N, 1)
 
 def gradient_penalty(critic, real, fake, device):
+    """Calculate the gradient penalty for the WGAN"""
     # Ensure both tensors have the same spatial dimensions
     if real.shape != fake.shape:
         min_h = min(real.shape[2], fake.shape[2])
@@ -225,14 +229,7 @@ def load_model(filename, device):
     return generator, critic, g_optimizer, c_optimizer, epoch
 
 def generate_images_from_model(model_path, n_images=16, output_path='generated_images', save_images=True):
-    """Generate images using a saved model
-    
-    Args:
-        model_path (str): Path to the saved model
-        n_images (int): Number of images to generate
-        output_path (str): Path to save generated images
-        save_images (bool): If True, saves images to disk. If False, only displays them.
-    """
+    """Generate images using a saved model"""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     # Load only the generator
@@ -564,13 +561,7 @@ def calculate_fid(real_images, fake_images, batch_size=32, device='cuda'):
     return fid_value
 
 def evaluate_model(model_path, n_samples=1000, batch_size=32):
-    """Evaluate a saved generator model using FID and IS metrics
-    
-    Args:
-        model_path (str): Path to the saved model
-        n_samples (int): Number of images to generate for evaluation
-        batch_size (int): Batch size for evaluation
-    """
+    """Evaluate a saved generator model using FID and IS metrics"""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     print(f"Evaluating model from {model_path} using {device}")

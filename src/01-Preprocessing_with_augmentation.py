@@ -46,6 +46,9 @@ transform_original = transforms.Compose([
 ])
 
 def transform_data(input_path, orig_tensor_path, aug_tensor_path, transform_aug, transform_orig, num_augmented=5, verbose=False):
+    """
+    Transform and augment images from input_path, save original and augmented tensors to orig_tensor_path and aug_tensor_path respectively.
+    """
     if verbose:
         print(f"Transforming and augmenting images from {input_path}")
         print(f"Original transformations saved to: {orig_tensor_path}")

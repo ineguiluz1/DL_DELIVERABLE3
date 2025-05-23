@@ -1,4 +1,4 @@
-Model: /home/adiez/models/wgan_final_model.pkl
+Model: /home/adiez/Desktop/DL_DELIVERABLE3/models/wgan_final_model.pkl
 Number of evaluation samples: 100
-Inception Score: 2.1685 ± 0.2795
-FID Score: 105.9349
+Inception Score: 2.1480 ± 0.2704
+FID Score: 101.5076

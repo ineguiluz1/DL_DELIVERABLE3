@@ -14,7 +14,7 @@ from scipy import linalg
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
 # Configuration options
-MODE = 'evaluate'  # 'train', 'generate', or 'evaluate'
+MODE = 'generate'  # 'train', 'generate', or 'evaluate'
 MODEL_PATH = os.path.join(os.path.dirname(script_dir), 'models', 'Autoencoder_GAN_final_model.pkl')  # Path to saved model for generation/evaluation
 N_IMAGES = 1  # Number of images to generate in generate mode
 SAVE_IMAGES = False  # Whether to save generated images to disk or just display them
@@ -39,6 +39,7 @@ N_EVAL_SAMPLES = 100  # Number of samples to generate for evaluation
 
 # Define paths
 def get_data_paths():
+    """Get paths to the original and augmented data"""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     augs_path = os.path.join(os.path.dirname(script_dir), 'data', 'aug_transformations')
     originals_path = os.path.join(os.path.dirname(script_dir), 'data', 'orig_transformations')
@@ -46,11 +47,13 @@ def get_data_paths():
 
 # Create directories
 def create_directories():
+    """Create directories for generated images, models, and plots"""
     os.makedirs(os.path.join(os.path.dirname(script_dir), 'generated_images'), exist_ok=True)
     os.makedirs(os.path.join(os.path.dirname(script_dir), 'models'), exist_ok=True)
     os.makedirs(os.path.join(os.path.dirname(script_dir), 'plots'), exist_ok=True)
 
 class Encoder(nn.Module):
+    """Encoder model for the Autoencoder-GAN"""
     def __init__(self, latent_dim=128):
         super(Encoder, self).__init__()
         self.net = nn.Sequential(
@@ -78,6 +81,7 @@ class Encoder(nn.Module):
         return self.net(x)
     
 class Decoder(nn.Module):
+    """Decoder model for the Autoencoder-GAN"""
     def __init__(self, latent_dim=128):
         super(Decoder, self).__init__()
         self.latent_dim = latent_dim
@@ -121,6 +125,7 @@ def spectral_norm_wrapper(module):
     return module
     
 class Discriminator(nn.Module):
+    """Discriminator model for the Autoencoder-GAN"""
     def __init__(self):
         super(Discriminator, self).__init__()
         
@@ -678,14 +683,7 @@ def calculate_fid(real_images, fake_images, batch_size=32, device='cuda'):
     return fid_value
 
 def evaluate_model(model_path, n_samples=1000, batch_size=32, latent_dim=LATENT_DIM):
-    """Evaluate a saved generator model using FID and IS metrics
-    
-    Args:
-        model_path (str): Path to the saved model
-        n_samples (int): Number of images to generate for evaluation
-        batch_size (int): Batch size for evaluation
-        latent_dim (int): Dimension of the latent space
-    """
+    """Evaluate a saved generator model using FID and IS metrics"""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     print(f"Evaluating model from {model_path} using {device}")
