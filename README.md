@@ -22,7 +22,7 @@ This project implements various GAN architectures for image generation, with a c
 │   ├── 01-Preprocessing_with_augmentation.py
 │   ├── 02-Simple_GAN.py
 │   ├── 03-WGAN.py
-│   ├── 04-StyleGAN.py
+│   ├── 04-StyleGAN.md
 │   └── 05-Autoencoder_GAN.py
 │
 ├── models/                   # Saved model checkpoints
@@ -63,9 +63,14 @@ This project implements various GAN architectures for image generation, with a c
 - Improved stability through Wasserstein distance
 - Gradient penalty for better training
 
-#### 04-StyleGAN.py
-- StyleGAN architecture implementation
-- Advanced generative model with style-based generation
+#### 04-StyleGAN.md (StyleGAN2-ADA Implementation)
+- Fine-tuning guide for StyleGAN2-ADA on The Simpsons dataset
+- Environment setup instructions with conda
+- Data preparation using StyleGAN2 tools
+- Multi-stage training process from FFHQ pre-trained model
+- Image generation and model evaluation (FID and IS metrics)
+- Detailed configuration for different GPU setups
+- Training parameters and checkpointing strategy
 
 #### 05-Autoencoder_GAN.py
 - Autoencoder-based GAN implementation
